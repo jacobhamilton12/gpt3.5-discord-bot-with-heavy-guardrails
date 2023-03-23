@@ -5,8 +5,21 @@ Bot that is designed with prompt enforcement, hides its initial prompt, more nat
 ## Usage
 
 ```
-python3 main_bot.py mock # for terminal bot
-python3 main_bot.py # for discord bot, must set up ID's before hand
+usage: python main_bot.py [-h] [--mock] --name NAME [--ai_moderate] [--heuristic_moderate] --channel_id CHANNEL_ID --bot_id BOT_ID --bot_token BOT_TOKEN
+
+Example script with optional and required arguments
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --mock                Enable mock mode
+  --name NAME           Name of bot
+  --ai_moderate         if used it will enable AI moderation (only works for certain prompts)
+  --heuristic_moderate  if used it will enable moderating key words that make it sound AI like
+  --channel_id CHANNEL_ID
+                        Discord channel ID
+  --bot_id BOT_ID       Discord bot ID
+  --bot_token BOT_TOKEN
+                        Discord bot token
 ```
 
 Example run with mock:
