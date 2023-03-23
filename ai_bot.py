@@ -1,47 +1,73 @@
 import openai
 import os
 import sys
-sys.path.append('/home/jake/antitheist_bot')
+import tiktoken
+from misc import retry, timeout
+from logger import logger
+sys.path.append('/home/jake/')
 
-from misc import retry
 
 openai.api_key = os.environ.get('OPENAI_KEY')
 
 MAX_TOKENS = 4000
 MIN_TOKENS = 500
+MAX_MESSAGE = 3000
 
 class Bot:
-    
+
     def __init__(self, init_prompt="You are a helpful assistant"):
-    # key words to block to keep ai on task / sound more natural
         self.message_log = []
-        self.send_to_openai(init_prompt, role='system', output_token_length = 10)
+        self.send_to_openai(init_prompt, role='system', output_token_length=10)
 
-    def token_count(self):
-        count = 0
-        for entry in self.message_log:
-            count += len(entry["content"]) // 4 # 1 token is roughly 4 characters in english
-        return count
+    def token_count(self, model="gpt-3.5-turbo-0301"):
+        """Returns the number of tokens used by a list of messages."""
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+        except KeyError:
+            encoding = tiktoken.get_encoding("cl100k_base")
+        if model == "gpt-3.5-turbo-0301":  # note: future models may deviate from this
+            num_tokens = 0
+            for message in self.message_log:
+                num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+                for key, value in message.items():
+                    num_tokens += len(encoding.encode(value))
+                    if key == "name":  # if there's a name, the role is omitted
+                        num_tokens += -1  # role is always required and always 1 token
+            num_tokens += 2  # every reply is primed with <im_start>assistant
+            return num_tokens
+        else:
+            raise NotImplementedError(f"""num_tokens_from_messages() is not presently implemented for model {model}.
+    See https://github.com/openai/openai-python/blob/main/chatml.md for information on how messages are converted to tokens.""")
 
-    # Function to send a message to the OpenAI chatbot model and return its response
+
     @retry(num_retries=3, wait_seconds=5)
-    def send_to_openai(self, content, role='user', save_mem=True, output_token_length = 4000):
+    @timeout(seconds=30)
+    def send_to_openai(self, content, role='user', save_mem=True, output_token_length=4000):
+        if len(content) > MAX_MESSAGE:
+            return "Message too long, ignoring it"
         self.message_log.append({"role": role, "content": content})
-        leftover_tokens =  MAX_TOKENS - self.token_count()
+        leftover_tokens = MAX_TOKENS - self.token_count()
+
         while leftover_tokens < MIN_TOKENS:
-            # don't pop first which is the system prompt
+            # don't pop the first item, which is the system prompt
             self.message_log.pop(1)
-            leftover_tokens =  MAX_TOKENS - self.token_count()
+            leftover_tokens = MAX_TOKENS - self.token_count()
+
         # Use OpenAI's ChatCompletion API to get the chatbot's response
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # The name of the OpenAI chatbot model to use
-            messages=self.message_log,   # The conversation history up to this point, as a list of dictionaries
-            max_tokens= min(MAX_TOKENS-leftover_tokens, output_token_length),        # The maximum number of tokens (words or subwords) in the generated response
-            stop=None,              # The stopping sequence for the generated response, if any (not used here)
-            temperature=0.7,        # The "creativity" of the generated response (higher temperature = more creative)
-        )
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=self.message_log,
+                max_tokens=min(leftover_tokens, output_token_length),
+                stop=None,
+                temperature=0.7,
+            )
+        except Exception as e:
+            logger.exception(f"error sending to openai {repr(e)} {str(e)}")
+            raise
         resp_msg = response.choices[0].message.content
         if save_mem:
             self.message_log.append({"role": "assistant", "content": resp_msg})
+        else:
+            self.message_log = self.message_log[:1]
         return resp_msg
-

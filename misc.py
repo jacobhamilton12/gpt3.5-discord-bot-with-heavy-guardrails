@@ -1,6 +1,9 @@
 import time
+import signal
+from functools import wraps
 
 from logger import logger
+
 
 def retry(num_retries, wait_seconds):
     def decorator(func):
@@ -17,4 +20,29 @@ def retry(num_retries, wait_seconds):
                 else:
                     return result
         return wrapper
+    return decorator
+
+class TimeoutError(Exception):
+    pass
+
+def timeout(seconds=10, error_message='Function call timed out'):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            def handler(signum, frame):
+                raise TimeoutError(error_message)
+
+            old_handler = signal.signal(signal.SIGALRM, handler)
+            signal.alarm(seconds)
+
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+
+            return result
+
+        return wrapper
+
     return decorator
